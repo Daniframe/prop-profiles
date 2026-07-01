@@ -7,6 +7,8 @@ __pycache__/
 .venv/
 venv/
 env/
+DevEnv
+TestEnv
 
 # --- OS files ---
 .DS_Store
@@ -41,3 +43,6 @@ dist/
 # --- Temp ---
 tmp/
 scratch/
+
+DevEnv
+TestEnv
