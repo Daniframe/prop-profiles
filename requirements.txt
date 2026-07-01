@@ -3,7 +3,9 @@ pandas
 scipy
 matplotlib
 seaborn
+statsmodels
 python-dotenv
 pyyaml
 tqdm
 notebook
+pytest

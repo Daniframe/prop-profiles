@@ -6,3 +6,12 @@ output_path: "results"
 openai_api_key: ${OPENAI_API_KEY}
 openai_api_endpoint: ${OPENAI_API_ENDPOINT}
 azure_openai_api_key: ${AZURE_OPENAI_API_KEY}
+
+# Propensity surfaces/curves module (src/propensity)
+propensity:
+  min_width: 0.1      # floor on interval width before computing discrimination (avoids overflow)
+  rho: 2.0             # controls how much discrimination grows as width shrinks (Eq.3)
+  k_default: 1.0        # shared slope k1=k2 used when fitting theta
+  n_bins: 20            # bins for empirical curve/surface aggregation
+  lowess_frac: 0.4       # LOWESS bandwidth fraction
+  maxiter: 500           # BFGS max iterations
