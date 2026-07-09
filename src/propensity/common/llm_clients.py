@@ -8,9 +8,16 @@ import os
 from openai import AzureOpenAI, OpenAI
 
 
-def get_openai_client(api_key: str | None = None) -> OpenAI:
-    """Returns an OpenAI client, defaulting to OPENAI_API_KEY from the environment."""
-    return OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
+def get_openai_client(api_key: str | None = None, base_url: str | None = None) -> OpenAI:
+    """Returns an OpenAI client, defaulting to OPENAI_API_KEY from the environment.
+
+    base_url lets this point at any OpenAI-Chat-Completions-compatible HTTP
+    endpoint instead of api.openai.com -- a self-hosted vLLM/Ollama/LM Studio
+    server, OpenRouter, Together, Groq, etc. -- which is what makes
+    inference.backends.OpenAICompatibleBackend provider-agnostic rather than
+    tied to OpenAI specifically.
+    """
+    return OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"), base_url=base_url)
 
 
 def get_azure_client(
