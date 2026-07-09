@@ -87,8 +87,8 @@ def plot_prop_surface(surface, theta_hat, ci95_lower, ci95_upper, model_name, ax
     )
 
     cbar = ax.collections[0].colorbar
-    cbar.set_label("P(success)", fontsize=14)
-    cbar.ax.tick_params(labelsize=12)
+    cbar.set_label("P(success)", fontsize=14) # pyright: ignore[reportOptionalMemberAccess]
+    cbar.ax.tick_params(labelsize=12) # pyright: ignore[reportOptionalMemberAccess]
 
     ax.invert_yaxis()
     ax.set_xlabel(r"Lower limit ($b_l$)", fontsize=14)

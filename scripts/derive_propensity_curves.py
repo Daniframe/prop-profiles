@@ -10,20 +10,17 @@ import os
 import sys
 import argparse
 
-import yaml
 import pandas as pd
-from dotenv import load_dotenv
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.propensity import data, mle, curves, surfaces, plotting
+from src.propensity.common import load_config
+from src.propensity.surfaces import data, mle, curves, surfaces, plotting
 
 
 def main():
-    load_dotenv()
-    with open("config/default.yaml") as f:
-        config = yaml.safe_load(f)
+    config = load_config("surfaces")
     prop_cfg = config.get("propensity", {})
 
     n_bins = prop_cfg.get("n_bins", 20)
@@ -43,7 +40,7 @@ def main():
     parser.add_argument("--plot_folder", type=str)
     args = parser.parse_args()
 
-    df_demands = data.load_demands(args.demands_filename)
+    df_demands = data.load_demands_single_dim(args.demands_filename)
     df_outcomes = data.load_outcomes(args.outcomes_filename)
     demands, success = data.build_arrays(df_demands, df_outcomes, args.model_name)
 

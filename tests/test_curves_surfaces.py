@@ -1,7 +1,7 @@
 import numpy as np
 
-from src.propensity.curves import build_empirical_curve
-from src.propensity.surfaces import build_empirical_surface
+from src.propensity.surfaces.curves import build_empirical_curve
+from src.propensity.surfaces.surfaces import build_empirical_surface
 
 
 def _simulate(n_items=200, seed=0):

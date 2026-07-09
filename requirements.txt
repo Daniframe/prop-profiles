@@ -9,3 +9,5 @@ pyyaml
 tqdm
 notebook
 pytest
+openai
+pydantic

@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import pytest
 
-from src.propensity.model import two_sided_sigma
+from src.propensity.surfaces.model import two_sided_sigma
 
 
 def _raw_exp_formula(x, x1, x2, k1, k2, min_width=0.1, rho=2.0):
@@ -25,7 +25,7 @@ def _raw_exp_formula(x, x1, x2, k1, k2, min_width=0.1, rho=2.0):
         exponent = np.clip(-k1 * (x2 - x1) / 2, -max_exp, max_exp)
         A = (1 + np.exp(exponent)) ** 2
     else:
-        from src.propensity.model import get_prod_normalized_A
+        from src.propensity.surfaces.model import get_prod_normalized_A
         A = get_prod_normalized_A(x1, x2, k1, k2)
 
     return A / ((1 + np.exp(-k1 * (x - x1))) * (1 + np.exp(k2 * (x - x2))))

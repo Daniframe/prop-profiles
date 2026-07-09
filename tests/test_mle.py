@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from src.propensity.model import two_sided_sigma
-from src.propensity.mle import fit_theta, neg_log_likelihood
+from src.propensity.surfaces.model import two_sided_sigma
+from src.propensity.surfaces.mle import fit_theta, neg_log_likelihood
 
 
 def _simulate(theta_true, n_items=250, seed=0):
