@@ -10,8 +10,8 @@ The pipeline has 5 sectors, each a subpackage of `src/propensity/`:
 | # | Sector | Package | Docs | Status |
 |---|---|---|---|---|
 | 1 | Dataset generation | `src/propensity/generation/` | [docs/sector1_generation.md](docs/sector1_generation.md) | Implemented |
-| 2 | Annotation (AzureOpenAI rubric-based demand intervals) | `src/propensity/annotation/` | -- | Not yet implemented |
-| 3 | Model inference (instance-level outcomes across incitement levels) | `src/propensity/inference/` | -- | Not yet implemented |
+| 2 | Annotation (rubric-based demand intervals) | `src/propensity/annotation/` | [docs/sector2_annotation.md](docs/sector2_annotation.md) | Implemented |
+| 3 | Model inference (instance-level outcomes across incitement levels) | `src/propensity/inference/` | [docs/sector3_inference.md](docs/sector3_inference.md) | Implemented (judge + reunite included) |
 | 4 | Propensity surfaces (curve/surface fitting) | `src/propensity/surfaces/` | [docs/sector4_surfaces.md](docs/sector4_surfaces.md) | Implemented |
 | 5 | Predictability (does propensity improve outcome prediction?) | `src/propensity/predictability/` | -- | Not yet implemented |
 
@@ -21,10 +21,15 @@ The pipeline has 5 sectors, each a subpackage of `src/propensity/`:
 conda env create -f environment.yaml   # or: pip install -r requirements.txt
 ```
 
-Sectors that call Azure OpenAI (annotation, part of generation, part of
-inference) read `AZURE_OPENAI_API_KEY`/`AZURE_OPENAI_ENDPOINT` from the
-environment (via `.env`, `python-dotenv`) -- see each sector's docs for which
-functionality needs them. Sector 4 needs no credentials at all.
+Sectors that call an LLM provider (annotation, part of generation, part of
+inference) read `AZURE_OPENAI_API_KEY`/`AZURE_OPENAI_ENDPOINT` or
+`OPENAI_API_KEY` from the environment (via `.env`, `python-dotenv`) -- see
+each sector's docs for which functionality needs them. None of these sectors
+are hardcoded to a specific provider: any client exposing the OpenAI
+Chat Completions interface works (OpenAI, Azure OpenAI, or a self-hosted
+OpenAI-compatible server via `base_url`). Sector 3 additionally supports
+local GPU inference via vLLM (`pip install vllm torch` separately -- not a
+default dependency). Sector 4 needs no credentials or GPU at all.
 
 ## Repository layout
 
@@ -47,5 +52,5 @@ pytest tests/ -q
 ```
 
 Every test is synthetic-fixture-based -- no network calls, no GPU, no
-credentials required to run the suite (functionality that needs Azure OpenAI
-is exercised against a mocked client instead).
+credentials required to run the suite (functionality that needs an LLM
+provider or GPU is exercised against a mocked client/fake backend instead).
