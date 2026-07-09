@@ -1,0 +1,10 @@
+# Sector 1: TimeMenatQA -- external/real benchmark, no synthetic generation.
+# Open-ended (LLM-judged), not multiple choice.
+name: TimeMenatQA
+kind: external
+source_path: data/benchmarks/raw/TimeMenatQA/TimeAndMentalQA.csv
+column_map:
+  instance_id: question_id
+  prompt: question_text
+  groundtruth: correct_answer
+extra_columns: [source, benchmark, task, answer_format]
