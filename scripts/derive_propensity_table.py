@@ -27,6 +27,11 @@ def main():
     parser.add_argument("--code", type=str, required=True, help="Dimension code embedded in outcome column names, e.g. RA")
     parser.add_argument("--models", type=str, required=True, help="Comma-separated model shortcuts, e.g. 4o,llama33,gemma3")
     parser.add_argument("--levels", type=str, default="-3,-2,-1,0,+1,+2,+3,", help="Comma-separated levels; an empty entry means the unprompted/bare column")
+    parser.add_argument("--robust", action="store_true",
+                         help="Retry with extra starting points ONLY when the first BFGS attempt fails to converge, "
+                              "stopping early once converged or once the fit stops improving (see mle.fit_theta)")
+    parser.add_argument("--max-retries", type=int, default=20, help="--robust only: cap on additional attempts")
+    parser.add_argument("--patience", type=int, default=2, help="--robust only: give up after this many non-improving additional attempts")
     parser.add_argument("--out", type=str, required=True)
     args = parser.parse_args()
 
@@ -41,6 +46,9 @@ def main():
         n_bins=prop_cfg.get("n_bins", 20),
         lowess_frac=prop_cfg.get("lowess_frac", 0.4),
         maxiter=prop_cfg.get("maxiter", 500),
+        robust=args.robust,
+        max_retries=args.max_retries,
+        patience=args.patience,
     )
     table.to_csv(args.out, index=False)
     print(f"Fit {len(table)} (model, level) pairs, wrote {args.out}")

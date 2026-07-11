@@ -24,7 +24,9 @@ def derive_propensity_table(
     n_bins: int = 20,
     lowess_frac: float = 0.4,
     maxiter: int = 500,
-    n_restarts: int = 1,
+    robust: bool = False,
+    max_retries: int = 20,
+    patience: int = 2,
 ) -> pd.DataFrame:
     """Fits theta for every (model, level) pair, skipping any pair whose
     outcome column isn't present in outcomes_df (e.g. a model that wasn't
@@ -34,17 +36,18 @@ def derive_propensity_table(
     levels: incitement levels to test; None means the "unprompted" column
         {model}_{code}_outcome (no level suffix) -- matches
         get_all_prop_points.py's LEVELS list, which included a bare "" entry.
-    n_restarts: forwarded to mle.fit_theta -- 1 (default) is a single BFGS
-        run per pair, unchanged from before this parameter existed; >1 retries
-        from multiple starting points and keeps the best-likelihood converged
-        result, which matters for near-ceiling/near-floor outcome data where
-        a single run can land in an arbitrary local optimum (see fit_theta's
-        docstring for why this keeps the best mode rather than averaging).
+    robust, max_retries, patience: forwarded to mle.fit_theta -- robust=False
+        (default) is a single BFGS run per pair, unchanged from before this
+        parameter existed. robust=True only spends extra attempts on pairs
+        whose first attempt doesn't converge, escalating until convergence,
+        no further improvement for `patience` attempts, or `max_retries` is
+        hit (see fit_theta's docstring for the full policy and why the
+        winner is picked by best likelihood rather than averaging).
 
     Returns a DataFrame with columns Model, Incited propensity, Obtained
     propensity, Lower 95CI, Upper 95CI, Converges, ReferenceLL, EstimationLL
     -- the same schema as Derived_propensities_{dataset}.csv. When
-    n_restarts > 1, also includes NRestarts/NConverged/RestartThetaStd.
+    robust=True, also includes NAttempts/NConverged/RestartThetaStd.
     """
     rows = []
     for model in models:
@@ -58,7 +61,7 @@ def derive_propensity_table(
                 continue
 
             fit = fit_theta(demands, success, k=k, n_bins=n_bins, lowess_frac=lowess_frac,
-                             maxiter=maxiter, n_restarts=n_restarts)
+                             maxiter=maxiter, robust=robust, max_retries=max_retries, patience=patience)
             incited_prop = None if level is None else float(level)
 
             row = {
@@ -71,14 +74,14 @@ def derive_propensity_table(
                 "ReferenceLL": fit["reference_ll"],
                 "EstimationLL": fit["gof"],
             }
-            if n_restarts > 1:
-                row["NRestarts"] = fit["n_restarts"]
+            if robust:
+                row["NAttempts"] = fit["n_attempts"]
                 row["NConverged"] = fit["n_converged"]
                 row["RestartThetaStd"] = fit["restart_theta_std"]
             rows.append(row)
 
     columns = ["Model", "Incited propensity", "Obtained propensity", "Lower 95CI",
                "Upper 95CI", "Converges", "ReferenceLL", "EstimationLL"]
-    if n_restarts > 1:
-        columns += ["NRestarts", "NConverged", "RestartThetaStd"]
+    if robust:
+        columns += ["NAttempts", "NConverged", "RestartThetaStd"]
     return pd.DataFrame(rows, columns=columns)

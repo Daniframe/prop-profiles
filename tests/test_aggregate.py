@@ -74,3 +74,14 @@ def test_derive_propensity_table_skips_levels_with_no_matching_column():
     table = derive_propensity_table(demands_df, outcomes_df, models=["modelA"], code="RA", levels=["-1", "+3"])
 
     assert set(table["Incited propensity"]) == {-1.0}  # "+3" column doesn't exist, silently skipped
+
+
+def test_derive_propensity_table_robust_true_adds_diagnostic_columns():
+    demands_df, outcomes_df = _fixture_dfs()
+    table = derive_propensity_table(
+        demands_df, outcomes_df, models=["modelA"], code="RA", levels=["-1", "0"],
+        robust=True, max_retries=10, patience=2,
+    )
+
+    assert {"NAttempts", "NConverged", "RestartThetaStd"} <= set(table.columns)
+    assert (table["NAttempts"] >= 1).all()
