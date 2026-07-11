@@ -25,6 +25,7 @@ from .surfaces import (
     build_empirical_surface,
     plot_prop_curve,
     plot_prop_surface,
+    derive_propensity_table,
 )
 
 __all__ = [
@@ -40,4 +41,5 @@ __all__ = [
     "build_empirical_surface",
     "plot_prop_curve",
     "plot_prop_surface",
+    "derive_propensity_table",
 ]

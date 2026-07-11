@@ -22,6 +22,7 @@ from .data import (
 from .curves import build_empirical_curve
 from .surfaces import build_empirical_surface
 from .plotting import plot_prop_curve, plot_prop_surface
+from .aggregate import derive_propensity_table
 
 __all__ = [
     "two_sided_sigma",
@@ -36,4 +37,5 @@ __all__ = [
     "build_empirical_surface",
     "plot_prop_curve",
     "plot_prop_surface",
+    "derive_propensity_table",
 ]

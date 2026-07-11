@@ -28,7 +28,8 @@ def neg_log_likelihood(theta, demands, success, k=1.0):
     return -np.log(np.prod(probs**success * (1 - probs) ** (1 - success)))
 
 
-def fit_theta(demands, success, k=1.0, x_init=None, n_bins=20, lowess_frac=0.4, maxiter=500):
+def fit_theta(demands, success, k=1.0, x_init=None, n_bins=20, lowess_frac=0.4, maxiter=500,
+              n_restarts=1, restart_range=None):
     """
     Fits theta by maximum likelihood (Eq. 6) via scipy.optimize.minimize
     (BFGS). If x_init is not given, derives one from a LOWESS-smoothed,
@@ -37,9 +38,29 @@ def fit_theta(demands, success, k=1.0, x_init=None, n_bins=20, lowess_frac=0.4, 
 
     demands: (N, 2) array-like of (b_l, b_u) pairs.
     success: (N,) array-like of binary outcomes.
+    n_restarts: if 1 (default), behaves exactly as a single BFGS run from the
+        LOWESS-derived x_init (unchanged from before this parameter existed).
+        If >1, also retries from (n_restarts - 1) additional starting points
+        spread across restart_range, and keeps whichever attempt has the best
+        (lowest) negative log-likelihood among ALL attempts, regardless of
+        each attempt's own convergence flag (a non-converged run can still
+        have reached a better point than a converged one elsewhere -- see the
+        comment above the selection line). This matters when the likelihood
+        surface is nearly flat (e.g. near-ceiling/near-floor outcome data): a
+        single BFGS run can land in an arbitrary local optimum, and simply
+        averaging thetas from different optima would blend two unrelated
+        modes into a point that fits neither -- so this keeps the
+        best-supported mode instead, not an average. Since the single-start
+        attempt is always included among the candidates, more restarts can
+        only match or improve the fit, never make it worse.
+    restart_range: (low, high) to spread extra starting points across;
+        defaults to the observed (min, max) of the demand bounds.
 
     Returns a dict: theta_hat, se, ci95_lower, ci95_upper, convergence,
-    reference_ll, gof, pseudo_r2.
+    reference_ll, gof, pseudo_r2. When n_restarts > 1, also includes
+    n_restarts, n_converged, and restart_theta_std (the spread of theta_hat
+    across attempts -- a diagnostic for how ambiguous the fit is, not used
+    to compute theta_hat itself).
     """
     demands = np.asarray(demands, dtype=float)
     success = np.asarray(success)
@@ -53,30 +74,51 @@ def fit_theta(demands, success, k=1.0, x_init=None, n_bins=20, lowess_frac=0.4, 
         idx_max = np.argmax(lowess_smoothed[:, 1])
         x_init = lowess_smoothed[idx_max, 0]
 
-    res = minimize(
-        neg_log_likelihood,
-        x0=x_init,
-        args=(demands, success, k),
-        method="BFGS",
-        options={"maxiter": maxiter},
-    )
+    if n_restarts > 1:
+        if restart_range is None:
+            restart_range = (float(demands.min()), float(demands.max()))
+        starting_points = [x_init] + list(np.linspace(restart_range[0], restart_range[1], n_restarts - 1))
+    else:
+        starting_points = [x_init]
 
-    gof = -res.fun
-    theta_hat = res.x[0]
-    se = np.sqrt(np.diag(res.hess_inv))[0]
+    attempts = [
+        minimize(neg_log_likelihood, x0=sp, args=(demands, success, k), method="BFGS", options={"maxiter": maxiter})
+        for sp in starting_points
+    ]
+
+    converged = [r for r in attempts if r.success]
+    # Deliberately NOT pre-filtered to converged-only: a non-converged BFGS run
+    # can still have reached a lower (better) NLL than every converged
+    # alternative (e.g. it was still improving when maxiter cut it off), and
+    # discarding it in favor of a worse-but-converged run would both give a
+    # worse point estimate AND break the invariant that more restarts can
+    # only match or improve on a single-start fit (the single-start attempt,
+    # x_init, is always included in `attempts`). `convergence` in the
+    # returned dict reflects whether the winning attempt itself converged,
+    # so an unreliable winner is still flagged rather than silently hidden.
+    best = min(attempts, key=lambda r: r.fun)
+
+    gof = -best.fun
+    theta_hat = best.x[0]
+    se = np.sqrt(np.diag(best.hess_inv))[0]
     ci95_lower = theta_hat - 1.96 * se
     ci95_upper = theta_hat + 1.96 * se
 
     reference_ll = -neg_log_likelihood([0.0], demands, success, k)
     pseudo_r2 = 1 - (gof / reference_ll)
 
-    return {
+    result = {
         "theta_hat": theta_hat,
         "se": se,
         "ci95_lower": ci95_lower,
         "ci95_upper": ci95_upper,
-        "convergence": float(res.success),
+        "convergence": float(best.success),
         "reference_ll": reference_ll,
         "gof": gof,
         "pseudo_r2": pseudo_r2,
     }
+    if n_restarts > 1:
+        result["n_restarts"] = len(attempts)
+        result["n_converged"] = len(converged)
+        result["restart_theta_std"] = float(np.std([r.x[0] for r in attempts]))
+    return result
