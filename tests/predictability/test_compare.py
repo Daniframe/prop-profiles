@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.datasets import make_classification
 
 from src.propensity.predictability.compare import compare_feature_sets
@@ -58,3 +59,34 @@ def test_compare_feature_sets_more_informative_features_score_at_least_as_well()
     baseline_auroc = result.loc[result["feature_set"] == "baseline", "auroc"].iloc[0]
     augmented_auroc = result.loc[result["feature_set"] == "augmented", "auroc"].iloc[0]
     assert augmented_auroc > baseline_auroc - 0.05
+
+
+def test_compare_feature_sets_significance_tests_requires_exactly_two_sets():
+    df = _fixture_df()
+    feature_sets = {"a": ["f0"], "b": ["f0", "f1"], "c": ["f0", "f1", "f2"]}
+    with pytest.raises(ValueError):
+        compare_feature_sets(df, feature_sets, "label", significance_tests=["paired_fold"])
+
+
+def test_compare_feature_sets_rejects_unknown_significance_test_name():
+    df = _fixture_df()
+    feature_sets = {"baseline": ["f0", "f1"], "augmented": ["f0", "f1", "f2", "f3"]}
+    with pytest.raises(ValueError):
+        compare_feature_sets(df, feature_sets, "label", significance_tests=["not_a_real_test"])
+
+
+def test_compare_feature_sets_attaches_requested_significance_results():
+    df = _fixture_df(n_samples=300, seed=9)
+    feature_sets = {"baseline": ["f0", "f1"], "augmented": ["f0", "f1", "f2", "f3", "f4", "f5"]}
+    result = compare_feature_sets(df, feature_sets, "label", significance_tests=["paired_fold", "delong"])
+    assert "significance" in result.attrs
+    assert set(result.attrs["significance"].keys()) == {"paired_fold", "delong"}
+    assert "pvalue" in result.attrs["significance"]["paired_fold"]
+    assert "pvalue" in result.attrs["significance"]["delong"]
+
+
+def test_compare_feature_sets_no_significance_attr_when_not_requested():
+    df = _fixture_df()
+    feature_sets = {"baseline": ["f0", "f1"], "augmented": ["f0", "f1", "f2", "f3"]}
+    result = compare_feature_sets(df, feature_sets, "label")
+    assert "significance" not in result.attrs
