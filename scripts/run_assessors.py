@@ -1,14 +1,17 @@
-"""CLI entry point for Sector 5's TimeMenatQA predictability comparison:
-does adding propensity-demand features to capability-demand features
-improve a Random Forest assessor's AUROC at predicting per-instance model
-correctness?
+"""General CLI entry point for Sector 5's predictability module: given an
+already-joined table, compare named feature-set configurations at
+predicting a binary label via 10-fold-CV Random Forest AUROC.
 
-This script is the TimeMenatQA-specific *driver* -- joining ready/annotated/
-outcomes on question_id, resolving a couple of known duplicate/inconsistent
-model columns, and naming the three feature-set configurations the paper
-compares. The reusable logic (generic feature selection, 10-fold CV
-evaluation, side-by-side comparison) lives in
-src/propensity/predictability/, dataset-agnostic.
+Dataset-agnostic -- it does no joining/column-cleanup of its own, unlike
+scripts/run_assessors_TimeMenatQA.py, which is the TimeMenatQA-specific
+driver that builds such a table and calls into the same underlying
+src/propensity/predictability module directly.
+
+Usage:
+    python scripts/run_assessors.py --table data.csv --label-column outcome \
+        --feature-set baseline=col1,col2 \
+        --feature-set augmented=col1,col2,col3,col4 \
+        --out comparison.csv
 """
 
 import os
@@ -17,96 +20,42 @@ import argparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import pandas as pd
-
 from src.propensity.common.io import read_table
 from src.propensity.predictability import compare_feature_sets
 
-# The 19-column capability-demand slice (ADeLe/DeLeAn dimensions), matching
-# prop-meas-anon/scripts/inference/assessors.py's feature slice exactly --
-# includes UG (constant across all TimeMenatQA items, harmless to an RF
-# split) even though the paper's prose states 18 dims and excludes it.
-CAPABILITY_COLUMNS = [
-    "UG", "AS", "CEc", "CEe", "CL", "KNn", "KNa", "KNc", "KNf", "KNs",
-    "MCt", "MCu", "MCr", "MS", "QLq", "QLl", "SNs", "VO", "AT",
-]
 
-PROPENSITY_CODES = ["BR", "RA", "Ex", "Ul"]
-LEVELS = ["-2", "0", "+2"]
-
-# TimeMenatQA_complete.csv has two known data-quality issues, confirmed by
-# direct comparison: "gpt-4o_*" is a byte-for-byte duplicate of "4o_*" (drop
-# it), and "ministral_*"/"ministral-r_*" are genuinely different inference
-# runs (69-90% agreement) -- keep "ministral-r" only, matching the model
-# shortcut used everywhere else in this repo.
-DROP_MODEL_PREFIXES = ["gpt-4o", "ministral"]
-
-
-def load_joined_table(base_dir: str) -> pd.DataFrame:
-    ready = read_table(os.path.join(base_dir, "data", "benchmarks", "ready", "TimeMenatQA", "TimeMenatQA.jsonl"))
-    df = ready[["question_id"] + CAPABILITY_COLUMNS]
-
-    for code in PROPENSITY_CODES:
-        annotated = read_table(os.path.join(
-            base_dir, "data", "benchmarks", "annotated", "TimeMenatQA", f"TimeMenatQA_{code}_annotations_GPT-4.1.jsonl"
-        ))
-        annotated = annotated[["question_id", "propensity_lower", "propensity_upper"]].rename(columns={
-            "propensity_lower": f"{code}_lower", "propensity_upper": f"{code}_upper",
-        })
-        df = df.merge(annotated, on="question_id", how="inner")
-
-    outcomes = read_table(os.path.join(base_dir, "data", "inference", "outcomes", "TimeMenatQA", "TimeMenatQA_complete.csv"))
-    df = df.merge(outcomes, on="question_id", how="inner")
-
-    drop_cols = [c for c in df.columns if any(c.startswith(f"{p}_") for p in DROP_MODEL_PREFIXES)]
-    df = df.drop(columns=drop_cols)
-    return df
-
-
-def resolve_models(df: pd.DataFrame) -> list:
-    outcome_cols = [c for c in df.columns if c.endswith("_outcome")]
-    models = sorted({c.split("_Ul_")[0] for c in outcome_cols})
-    return models
-
-
-def feature_sets_for(code: str) -> dict:
-    all_prop_cols = [col for c in PROPENSITY_CODES for col in (f"{c}_lower", f"{c}_upper")]
-    return {
-        "capabilities_only": CAPABILITY_COLUMNS,
-        "capabilities_plus_ultracrep": CAPABILITY_COLUMNS + [f"{code}_lower", f"{code}_upper"],
-        "capabilities_plus_all_props": CAPABILITY_COLUMNS + all_prop_cols,
-    }
+def parse_feature_set(spec: str):
+    """Parses one --feature-set "name=col1,col2,col3" argument."""
+    if "=" not in spec:
+        raise argparse.ArgumentTypeError(f"--feature-set must be 'name=col1,col2,...', got: {spec!r}")
+    name, columns = spec.split("=", 1)
+    columns = [c.strip() for c in columns.split(",") if c.strip()]
+    if not columns:
+        raise argparse.ArgumentTypeError(f"--feature-set '{name}' has no columns: {spec!r}")
+    return name, columns
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Compare capability-only vs. capability+propensity Random Forest assessors on TimeMenatQA"
+        description="Compare named feature-set configurations at predicting a binary label (10-fold-CV RF AUROC)"
     )
+    parser.add_argument("--table", type=str, required=True, help="CSV or JSONL file with all feature and label columns already joined")
+    parser.add_argument("--label-column", type=str, required=True)
+    parser.add_argument("--feature-set", action="append", required=True, dest="feature_sets",
+                         help="'name=col1,col2,...' -- repeat for each named feature set to compare")
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", type=str, required=True)
     args = parser.parse_args()
 
-    base_dir = os.path.join(os.path.dirname(__file__), "..")
-    df = load_joined_table(base_dir)
-    models = resolve_models(df)
-    feature_sets = feature_sets_for("Ul")
+    feature_sets = dict(parse_feature_set(spec) for spec in args.feature_sets)
 
-    rows = []
-    for model in models:
-        for level in LEVELS:
-            label_column = f"{model}_Ul_{level}_outcome"
-            if label_column not in df.columns:
-                continue
-            comparison = compare_feature_sets(df, feature_sets, label_column)
-            for _, r in comparison.iterrows():
-                rows.append({"Model": model, "Bias": level, "FeatureSet": r["feature_set"], "AUROC": r["auroc"]})
+    df = read_table(args.table)
+    result = compare_feature_sets(df, feature_sets, args.label_column, seed=args.seed)
 
-    long_table = pd.DataFrame(rows)
-    wide_table = long_table.pivot(index=["Model", "Bias"], columns="FeatureSet", values="AUROC").reset_index()
-    wide_table = wide_table[["Model", "Bias", "capabilities_only", "capabilities_plus_ultracrep", "capabilities_plus_all_props"]]
-
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    wide_table.to_csv(args.out, index=False)
-    print(f"Evaluated {len(models)} models x {len(LEVELS)} levels, wrote {len(wide_table)} rows -> {args.out}")
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    result.to_csv(args.out, index=False)
+    print(f"Compared {len(feature_sets)} feature set(s), wrote {args.out}")
+    print(result.to_string(index=False))
 
 
 if __name__ == "__main__":
