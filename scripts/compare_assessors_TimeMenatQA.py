@@ -83,18 +83,15 @@ def feature_sets_for(code: str) -> dict:
 DEFAULT_OUT = os.path.join("data", "propsurfaces", "predictability", "TimeMenatQA_assessor_table.csv")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Compare capability-only vs. capability+propensity Random Forest assessors on TimeMenatQA"
-    )
-    parser.add_argument("--out", type=str, default=DEFAULT_OUT)
-    args = parser.parse_args()
-
-    base_dir = os.path.join(os.path.dirname(__file__), "..")
-    df = load_joined_table(base_dir)
-    models = resolve_models(df)
+def build_comparison_table(df: pd.DataFrame, models: list) -> pd.DataFrame:
+    """Trains all 27 (model, level) x 3-feature-set-config assessors and
+    returns the wide per-subject AUROC table -- the reusable core of this
+    script's training step, factored out so other scripts (e.g.
+    population_significance_TimeMenatQA.py) can reuse it without
+    duplicating the loop or re-running scripts/compare_assessors_TimeMenatQA.py
+    as a subprocess.
+    """
     feature_sets = feature_sets_for("Ul")
-
     rows = []
     for model in models:
         for level in LEVELS:
@@ -107,7 +104,20 @@ def main():
 
     long_table = pd.DataFrame(rows)
     wide_table = long_table.pivot(index=["Model", "Bias"], columns="FeatureSet", values="AUROC").reset_index()
-    wide_table = wide_table[["Model", "Bias", "capabilities_only", "capabilities_plus_ultracrep", "capabilities_plus_all_props"]]
+    return wide_table[["Model", "Bias", "capabilities_only", "capabilities_plus_ultracrep", "capabilities_plus_all_props"]]
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Compare capability-only vs. capability+propensity Random Forest assessors on TimeMenatQA"
+    )
+    parser.add_argument("--out", type=str, default=DEFAULT_OUT)
+    args = parser.parse_args()
+
+    base_dir = os.path.join(os.path.dirname(__file__), "..")
+    df = load_joined_table(base_dir)
+    models = resolve_models(df)
+    wide_table = build_comparison_table(df, models)
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     wide_table.to_csv(args.out, index=False)
