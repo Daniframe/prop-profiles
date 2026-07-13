@@ -13,6 +13,11 @@ Two families of methods here, answering two different questions:
   -> population_paired_test, population_win_rate_test,
      population_bootstrap_ci, mixed_effects_test.
 
+Plus one standalone utility, bootstrap_ci_from_predictions, for a fast
+single-arm AUROC CI on predictions that already exist (no refitting) --
+used when the refit-based per-subject/per-resample cost above is too
+expensive at scale (see its docstring).
+
 None of these functions load or touch any dataset directly. The per-subject
 functions take already-built, ROW-ALIGNED (X_a, X_b, y) -- same examples, same
 order -- since that alignment is what makes a "paired" comparison valid;
@@ -28,6 +33,7 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 from scipy import stats
+from sklearn.metrics import roc_auc_score
 
 from .assessor import fold_aurocs, oof_predictions
 
@@ -220,6 +226,124 @@ def bootstrap_item_ci(X_a: pd.DataFrame, X_b: pd.DataFrame, y: pd.Series, seed: 
         "ci_upper": float(np.percentile(deltas, upper_pct)) if len(deltas) else float("nan"),
         "n_resamples_used": len(deltas),
         "ci": ci,
+    }
+
+
+def paired_bootstrap_ci_from_predictions(y_true, y_pred_proba_a, y_pred_proba_b, groups=None,
+                                          seed: int = 42, n_resamples: int = 1000, ci: float = 95) -> Dict:
+    """Like bootstrap_ci_from_predictions, but for TWO already-computed
+    prediction arrays (from the same y_true, e.g. two configurations' OOF
+    predictions on the same rows) -- each resample draws the same indices
+    for both arrays and records the AUC delta (b - a), giving a percentile
+    CI on the delta without any refitting.
+
+    This is the paired analogue of bootstrap_ci_from_predictions: use this
+    (not two separate single-arm CIs eyeballed for overlap) when the actual
+    question is "is the delta between two configurations significant" --
+    overlapping single-arm CIs do NOT imply a non-significant difference,
+    since a paired test accounts for the (typically strong, positive)
+    correlation between two configurations' predictions on the same
+    examples, which single-arm CIs ignore entirely.
+    """
+    y_true = np.asarray(y_true)
+    pred_a = np.asarray(y_pred_proba_a)
+    pred_b = np.asarray(y_pred_proba_b)
+    rng = np.random.default_rng(seed)
+    n = len(y_true)
+    deltas = []
+
+    if groups is not None:
+        groups = np.asarray(groups)
+        unique_groups = np.unique(groups)
+        group_to_indices = {g: np.where(groups == g)[0] for g in unique_groups}
+        n_groups = len(unique_groups)
+        for _ in range(n_resamples):
+            drawn_groups = unique_groups[rng.integers(0, n_groups, size=n_groups)]
+            idx = np.concatenate([group_to_indices[g] for g in drawn_groups])
+            if len(np.unique(y_true[idx])) < 2:
+                continue
+            deltas.append(roc_auc_score(y_true[idx], pred_b[idx]) - roc_auc_score(y_true[idx], pred_a[idx]))
+    else:
+        for _ in range(n_resamples):
+            idx = rng.integers(0, n, size=n)
+            if len(np.unique(y_true[idx])) < 2:
+                continue
+            deltas.append(roc_auc_score(y_true[idx], pred_b[idx]) - roc_auc_score(y_true[idx], pred_a[idx]))
+
+    deltas = np.array(deltas)
+    lower_pct, upper_pct = (100 - ci) / 2, 100 - (100 - ci) / 2
+    point_delta = float("nan")
+    if len(np.unique(y_true)) >= 2:
+        point_delta = float(roc_auc_score(y_true, pred_b) - roc_auc_score(y_true, pred_a))
+    return {
+        "mean_delta": point_delta,
+        "ci_lower": float(np.percentile(deltas, lower_pct)) if len(deltas) else float("nan"),
+        "ci_upper": float(np.percentile(deltas, upper_pct)) if len(deltas) else float("nan"),
+        "n_resamples_used": len(deltas),
+        "ci": ci,
+        "grouped": groups is not None,
+    }
+
+
+def bootstrap_ci_from_predictions(y_true, y_pred_proba, groups=None, seed: int = 42,
+                                   n_resamples: int = 1000, ci: float = 95) -> Dict:
+    """Single-arm bootstrap CI on the AUROC of an ALREADY-COMPUTED set of
+    predictions (e.g. out-of-fold predictions from one CV run, or a fixed
+    model's predictions on a held-out test set) -- resamples the (y_true,
+    y_pred_proba) pairs with replacement n_resamples times and reports a
+    percentile CI on the resulting AUROC distribution.
+
+    This deliberately does NOT refit anything (unlike bootstrap_item_ci,
+    which resamples raw rows and refits the full CV pipeline per resample).
+    It captures the sampling variability of the AUROC estimator given a
+    fixed set of predictions, not the additional variability from retraining
+    on different data -- the standard, much cheaper approach for an AUROC CI
+    (comparable in spirit to what DeLong's test targets), used here because
+    refit-based bootstrapping was empirically measured to take ~30 min for a
+    single 355-row/2-config comparison, making it infeasible to run at scale
+    (e.g. across many (model, level) subjects or larger populational
+    datasets) within any reasonable time budget.
+
+    groups: optional array-like the same length as y_true (e.g. question_id)
+    -- when given, resampling draws GROUPS with replacement (all of a drawn
+    group's rows included together) rather than independent rows, which is
+    the more honest approach when multiple rows share an underlying
+    correlated unit (e.g. the same question paired with several models).
+    """
+    y_true = np.asarray(y_true)
+    y_pred_proba = np.asarray(y_pred_proba)
+    rng = np.random.default_rng(seed)
+    n = len(y_true)
+    aurocs = []
+
+    if groups is not None:
+        groups = np.asarray(groups)
+        unique_groups = np.unique(groups)
+        group_to_indices = {g: np.where(groups == g)[0] for g in unique_groups}
+        n_groups = len(unique_groups)
+        for _ in range(n_resamples):
+            drawn_groups = unique_groups[rng.integers(0, n_groups, size=n_groups)]
+            idx = np.concatenate([group_to_indices[g] for g in drawn_groups])
+            if len(np.unique(y_true[idx])) < 2:
+                continue
+            aurocs.append(roc_auc_score(y_true[idx], y_pred_proba[idx]))
+    else:
+        for _ in range(n_resamples):
+            idx = rng.integers(0, n, size=n)
+            if len(np.unique(y_true[idx])) < 2:
+                continue
+            aurocs.append(roc_auc_score(y_true[idx], y_pred_proba[idx]))
+
+    aurocs = np.array(aurocs)
+    lower_pct, upper_pct = (100 - ci) / 2, 100 - (100 - ci) / 2
+    point_estimate = roc_auc_score(y_true, y_pred_proba) if len(np.unique(y_true)) >= 2 else float("nan")
+    return {
+        "auroc": float(point_estimate),
+        "ci_lower": float(np.percentile(aurocs, lower_pct)) if len(aurocs) else float("nan"),
+        "ci_upper": float(np.percentile(aurocs, upper_pct)) if len(aurocs) else float("nan"),
+        "n_resamples_used": len(aurocs),
+        "ci": ci,
+        "grouped": groups is not None,
     }
 
 

@@ -3,7 +3,7 @@ already-joined table, compare named feature-set configurations at
 predicting a binary label via 10-fold-CV Random Forest AUROC.
 
 Dataset-agnostic -- it does no joining/column-cleanup of its own, unlike
-scripts/run_assessors_TimeMenatQA.py, which is the TimeMenatQA-specific
+scripts/compare_assessors_TimeMenatQA.py, which is the TimeMenatQA-specific
 driver that builds such a table and calls into the same underlying
 src/propensity/predictability module directly.
 

@@ -80,11 +80,14 @@ def feature_sets_for(code: str) -> dict:
     }
 
 
+DEFAULT_OUT = os.path.join("data", "propsurfaces", "predictability", "TimeMenatQA_assessor_table.csv")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compare capability-only vs. capability+propensity Random Forest assessors on TimeMenatQA"
     )
-    parser.add_argument("--out", type=str, required=True)
+    parser.add_argument("--out", type=str, default=DEFAULT_OUT)
     args = parser.parse_args()
 
     base_dir = os.path.join(os.path.dirname(__file__), "..")

@@ -9,6 +9,8 @@ from src.propensity.predictability.evaluation import (
     paired_fold_test,
     delong_test,
     bootstrap_item_ci,
+    bootstrap_ci_from_predictions,
+    paired_bootstrap_ci_from_predictions,
     population_paired_test,
     population_win_rate_test,
     population_bootstrap_ci,
@@ -226,3 +228,102 @@ def test_mixed_effects_test_rejects_single_valued_config_column():
     df["config"] = "only_one_value"
     with pytest.raises(ValueError):
         mixed_effects_test(df, auroc_column="auroc", config_column="config", group_column="model")
+
+
+# --- bootstrap_ci_from_predictions ------------------------------------------
+
+def _predictions_fixture(n=300, seed=0):
+    rng = np.random.default_rng(seed)
+    y_true = rng.integers(0, 2, size=n)
+    y_pred_proba = np.clip(y_true * 0.4 + rng.normal(0.4, 0.2, size=n), 0, 1)
+    return y_true, y_pred_proba
+
+
+def test_bootstrap_ci_from_predictions_returns_expected_keys():
+    y_true, y_pred_proba = _predictions_fixture()
+    result = bootstrap_ci_from_predictions(y_true, y_pred_proba, n_resamples=100)
+    assert set(result.keys()) == {"auroc", "ci_lower", "ci_upper", "n_resamples_used", "ci", "grouped"}
+    assert result["grouped"] is False
+
+
+def test_bootstrap_ci_from_predictions_auroc_matches_plain_roc_auc_score():
+    y_true, y_pred_proba = _predictions_fixture(seed=1)
+    result = bootstrap_ci_from_predictions(y_true, y_pred_proba, n_resamples=50)
+    assert result["auroc"] == pytest.approx(roc_auc_score(y_true, y_pred_proba))
+
+
+def test_bootstrap_ci_from_predictions_bounds_are_ordered():
+    y_true, y_pred_proba = _predictions_fixture(seed=2)
+    result = bootstrap_ci_from_predictions(y_true, y_pred_proba, n_resamples=200)
+    assert result["ci_lower"] <= result["auroc"] <= result["ci_upper"]
+
+
+def test_bootstrap_ci_from_predictions_is_fast_and_needs_no_refitting():
+    """The whole point of this helper vs. bootstrap_item_ci: no model
+    fitting happens, so even 1000 resamples over a few hundred rows should
+    take well under a second."""
+    import time
+    y_true, y_pred_proba = _predictions_fixture(n=1000, seed=3)
+    t0 = time.perf_counter()
+    bootstrap_ci_from_predictions(y_true, y_pred_proba, n_resamples=1000)
+    assert time.perf_counter() - t0 < 5.0
+
+
+def test_bootstrap_ci_from_predictions_grouped_keeps_group_rows_together():
+    """With groups, every resample must draw whole groups -- verified
+    indirectly by checking the grouped flag and that it still returns a
+    sane CI (a direct row-membership check would require inspecting
+    internals; this exercises the grouped code path end-to-end)."""
+    rng = np.random.default_rng(4)
+    n_groups = 50
+    groups = np.repeat(np.arange(n_groups), 3)
+    y_true = rng.integers(0, 2, size=len(groups))
+    y_pred_proba = np.clip(y_true * 0.4 + rng.normal(0.4, 0.2, size=len(groups)), 0, 1)
+
+    result = bootstrap_ci_from_predictions(y_true, y_pred_proba, groups=groups, n_resamples=100)
+    assert result["grouped"] is True
+    assert result["ci_lower"] <= result["auroc"] <= result["ci_upper"]
+
+
+def test_bootstrap_ci_from_predictions_perfect_predictions_give_auroc_one():
+    y_true = np.array([0, 1] * 50)
+    y_pred_proba = y_true.astype(float)
+    result = bootstrap_ci_from_predictions(y_true, y_pred_proba, n_resamples=100)
+    assert result["auroc"] == pytest.approx(1.0)
+
+
+# --- paired_bootstrap_ci_from_predictions -----------------------------------
+
+def test_paired_bootstrap_ci_from_predictions_returns_expected_keys():
+    y_true, pred_a = _predictions_fixture(seed=5)
+    _, pred_b = _predictions_fixture(seed=6)
+    result = paired_bootstrap_ci_from_predictions(y_true, pred_a, pred_b, n_resamples=100)
+    assert set(result.keys()) == {"mean_delta", "ci_lower", "ci_upper", "n_resamples_used", "ci", "grouped"}
+
+
+def test_paired_bootstrap_ci_from_predictions_identical_predictions_gives_zero_delta():
+    y_true, pred = _predictions_fixture(seed=7)
+    result = paired_bootstrap_ci_from_predictions(y_true, pred, pred, n_resamples=100)
+    assert result["mean_delta"] == pytest.approx(0.0)
+    assert result["ci_lower"] <= 0.0 <= result["ci_upper"]
+
+
+def test_paired_bootstrap_ci_from_predictions_matches_point_delta():
+    y_true, pred_a = _predictions_fixture(n=300, seed=8)
+    pred_b = np.clip(pred_a + 0.15, 0, 1)
+    expected_delta = roc_auc_score(y_true, pred_b) - roc_auc_score(y_true, pred_a)
+    result = paired_bootstrap_ci_from_predictions(y_true, pred_a, pred_b, n_resamples=200)
+    assert result["mean_delta"] == pytest.approx(expected_delta)
+
+
+def test_paired_bootstrap_ci_from_predictions_grouped_runs_end_to_end():
+    rng = np.random.default_rng(9)
+    n_groups = 50
+    groups = np.repeat(np.arange(n_groups), 3)
+    y_true = rng.integers(0, 2, size=len(groups))
+    pred_a = np.clip(y_true * 0.3 + rng.normal(0.4, 0.2, size=len(groups)), 0, 1)
+    pred_b = np.clip(y_true * 0.5 + rng.normal(0.4, 0.2, size=len(groups)), 0, 1)
+
+    result = paired_bootstrap_ci_from_predictions(y_true, pred_a, pred_b, groups=groups, n_resamples=100)
+    assert result["grouped"] is True
+    assert result["ci_lower"] <= result["mean_delta"] <= result["ci_upper"]
